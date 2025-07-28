@@ -8,14 +8,15 @@ function Login() {
     password: ''
   });
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   
-  const { login } = useApp();
+  const { signIn } = useApp();
   const navigate = useNavigate();
   const location = useLocation();
   
   const from = location.state?.from?.pathname || '/dashboard';
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     
     if (!formData.email || !formData.password) {
@@ -23,14 +24,18 @@ function Login() {
       return;
     }
 
-    // Mock login - in real app, this would validate against a backend
-    const userData = {
-      name: formData.email.split('@')[0],
-      email: formData.email
-    };
+    setIsLoading(true);
+    setError('');
+
+    const result = await signIn(formData.email, formData.password);
     
-    login(userData);
-    navigate(from, { replace: true });
+    if (result.success) {
+      navigate(from, { replace: true });
+    } else {
+      setError(result.error);
+    }
+    
+    setIsLoading(false);
   };
 
   const handleChange = (e) => {
@@ -78,8 +83,13 @@ function Login() {
             />
           </div>
           
-          <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
-            Sign In
+          <button 
+            type="submit" 
+            className="btn btn-primary" 
+            style={{ width: '100%' }}
+            disabled={isLoading}
+          >
+            {isLoading ? 'Signing In...' : 'Sign In'}
           </button>
         </form>
         
