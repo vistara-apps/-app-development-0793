@@ -4,11 +4,11 @@ import { useApp } from '../context/AppContext';
 import { LogOut, User } from 'lucide-react';
 
 function Navbar() {
-  const { user, logout } = useApp();
+  const { user, signOut } = useApp();
   const location = useLocation();
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await signOut();
   };
 
   return (

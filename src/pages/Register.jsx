@@ -10,11 +10,13 @@ function Register() {
     confirmPassword: ''
   });
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [success, setSuccess] = useState('');
   
-  const { login } = useApp();
+  const { signUp } = useApp();
   const navigate = useNavigate();
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     
     if (!formData.name || !formData.email || !formData.password) {
@@ -27,14 +29,28 @@ function Register() {
       return;
     }
 
-    // Mock registration - in real app, this would create a user in the backend
-    const userData = {
-      name: formData.name,
-      email: formData.email
-    };
+    if (formData.password.length < 6) {
+      setError('Password must be at least 6 characters long');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+    setSuccess('');
+
+    const result = await signUp(formData.email, formData.password, formData.name);
     
-    login(userData);
-    navigate('/dashboard');
+    if (result.success) {
+      setSuccess('Account created successfully! Please check your email to verify your account.');
+      // Don't navigate immediately - let user verify email first
+      setTimeout(() => {
+        navigate('/login');
+      }, 3000);
+    } else {
+      setError(result.error);
+    }
+    
+    setIsLoading(false);
   };
 
   const handleChange = (e) => {
@@ -54,6 +70,12 @@ function Register() {
         {error && (
           <div className="alert alert-error">
             {error}
+          </div>
+        )}
+        
+        {success && (
+          <div className="alert alert-success">
+            {success}
           </div>
         )}
         
@@ -106,8 +128,13 @@ function Register() {
             />
           </div>
           
-          <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
-            Create Account
+          <button 
+            type="submit" 
+            className="btn btn-primary" 
+            style={{ width: '100%' }}
+            disabled={isLoading}
+          >
+            {isLoading ? 'Creating Account...' : 'Create Account'}
           </button>
         </form>
         

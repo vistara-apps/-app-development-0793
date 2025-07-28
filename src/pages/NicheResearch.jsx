@@ -1,53 +1,72 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { Search, Target, TrendingUp, DollarSign } from 'lucide-react';
+import { researchService } from '../services/researchService.js';
+import { competitiveAnalysisService } from '../services/competitiveAnalysisService.js';
+import { Search, Target, TrendingUp, DollarSign, AlertCircle, CheckCircle } from 'lucide-react';
 
 function NicheResearch() {
   const [searchQuery, setSearchQuery] = useState('');
   const [analysisResult, setAnalysisResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [competitiveAnalysis, setCompetitiveAnalysis] = useState(null);
+  const [loadingCompetitive, setLoadingCompetitive] = useState(false);
   
-  const { addNiche, generateKeywords } = useApp();
+  const { dispatch } = useApp();
 
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
 
     setLoading(true);
+    setError('');
+    setSuccess('');
+    setAnalysisResult(null);
+    setCompetitiveAnalysis(null);
     
-    // Mock API delay
-    setTimeout(() => {
-      const mockResult = {
-        name: searchQuery,
-        description: `Analysis for ${searchQuery} niche market`,
-        searchVolume: Math.floor(Math.random() * 50000) + 10000,
-        competitionLevel: ['low', 'medium', 'high'][Math.floor(Math.random() * 3)],
-        monetizationPotential: Math.floor(Math.random() * 5) + 6, // 6-10
-        trends: [
-          { month: 'Jan', volume: 1200 },
-          { month: 'Feb', volume: 1450 },
-          { month: 'Mar', volume: 1800 },
-          { month: 'Apr', volume: 2100 },
-          { month: 'May', volume: 2400 },
-          { month: 'Jun', volume: 2200 }
-        ],
-        competitors: [
-          { domain: 'example1.com', authority: 45, traffic: '250K' },
-          { domain: 'example2.com', authority: 38, traffic: '180K' },
-          { domain: 'example3.com', authority: 52, traffic: '320K' }
-        ]
-      };
+    try {
+      // Conduct comprehensive niche research
+      const result = await researchService.conductNicheResearch(searchQuery);
       
-      const keywords = generateKeywords(searchQuery);
-      setAnalysisResult({ ...mockResult, keywords });
+      if (result.success) {
+        setAnalysisResult(result.data);
+        setSuccess('Niche research completed successfully!');
+        
+        // Update app state with new niche
+        dispatch({ type: 'ADD_NICHE', payload: result.data.niche });
+        
+        // Start competitive analysis in background
+        handleCompetitiveAnalysis(searchQuery);
+      } else {
+        setError(result.error);
+      }
+    } catch (err) {
+      setError('Failed to conduct niche research. Please try again.');
+    } finally {
       setLoading(false);
-    }, 2000);
+    }
+  };
+
+  const handleCompetitiveAnalysis = async (niche) => {
+    setLoadingCompetitive(true);
+    
+    try {
+      const result = await competitiveAnalysisService.analyzeCompetitors(niche);
+      
+      if (result.success) {
+        setCompetitiveAnalysis(result.data);
+      }
+    } catch (err) {
+      console.error('Competitive analysis failed:', err);
+    } finally {
+      setLoadingCompetitive(false);
+    }
   };
 
   const handleSaveNiche = () => {
     if (analysisResult) {
-      const niche = addNiche(analysisResult);
-      alert(`Niche "${niche.name}" saved successfully!`);
+      setSuccess(`Niche "${analysisResult.niche.name}" has been saved to your dashboard!`);
     }
   };
 

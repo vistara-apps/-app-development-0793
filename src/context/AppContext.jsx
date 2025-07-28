@@ -1,15 +1,16 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
-import { v4 as uuidv4 } from 'uuid';
+import { supabase } from '../lib/supabase.js';
 
 const AppContext = createContext();
 
 const initialState = {
   user: null,
+  session: null,
   niches: [],
   keywords: [],
   content: [],
   sites: [],
-  loading: false,
+  loading: true,
   error: null
 };
 
@@ -19,18 +20,38 @@ function appReducer(state, action) {
       return { ...state, loading: action.payload };
     case 'SET_ERROR':
       return { ...state, error: action.payload };
+    case 'SET_SESSION':
+      return { ...state, session: action.payload, loading: false };
     case 'SET_USER':
       return { ...state, user: action.payload };
     case 'LOGOUT':
-      return { ...initialState };
+      return { ...initialState, loading: false };
+    case 'SET_NICHES':
+      return { ...state, niches: action.payload };
     case 'ADD_NICHE':
       return { ...state, niches: [...state.niches, action.payload] };
+    case 'UPDATE_NICHE':
+      return {
+        ...state,
+        niches: state.niches.map(niche =>
+          niche.id === action.payload.id ? action.payload : niche
+        )
+      };
+    case 'DELETE_NICHE':
+      return {
+        ...state,
+        niches: state.niches.filter(niche => niche.id !== action.payload)
+      };
     case 'SET_KEYWORDS':
       return { ...state, keywords: action.payload };
     case 'ADD_CONTENT':
       return { ...state, content: [...state.content, action.payload] };
+    case 'SET_CONTENT':
+      return { ...state, content: action.payload };
     case 'ADD_SITE':
       return { ...state, sites: [...state.sites, action.payload] };
+    case 'SET_SITES':
+      return { ...state, sites: action.payload };
     case 'UPDATE_SITE':
       return {
         ...state,
@@ -46,85 +67,152 @@ function appReducer(state, action) {
 export function AppProvider({ children }) {
   const [state, dispatch] = useReducer(appReducer, initialState);
 
-  // Load user from localStorage on init
+  // Initialize Supabase auth listener
   useEffect(() => {
-    const storedUser = localStorage.getItem('niche_builder_user');
-    if (storedUser) {
-      dispatch({ type: 'SET_USER', payload: JSON.parse(storedUser) });
-    }
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      dispatch({ type: 'SET_SESSION', payload: session });
+      if (session?.user) {
+        fetchUserProfile(session.user.id);
+      }
+    });
+
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      dispatch({ type: 'SET_SESSION', payload: session });
+      
+      if (event === 'SIGNED_IN' && session?.user) {
+        await fetchUserProfile(session.user.id);
+      } else if (event === 'SIGNED_OUT') {
+        dispatch({ type: 'LOGOUT' });
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const login = (userData) => {
-    const user = { ...userData, id: uuidv4(), planType: 'free' };
-    localStorage.setItem('niche_builder_user', JSON.stringify(user));
-    dispatch({ type: 'SET_USER', payload: user });
-  };
-
-  const logout = () => {
-    localStorage.removeItem('niche_builder_user');
-    dispatch({ type: 'LOGOUT' });
-  };
-
-  const addNiche = (nicheData) => {
-    const niche = {
-      id: uuidv4(),
-      ...nicheData,
-      createdAt: new Date().toISOString()
-    };
-    dispatch({ type: 'ADD_NICHE', payload: niche });
-    return niche;
-  };
-
-  const generateKeywords = (niche) => {
-    // Mock keyword generation
-    const keywords = [
-      { id: uuidv4(), name: `${niche} guide`, searchVolume: 2400, competitionLevel: 'low', cpcValue: 1.50 },
-      { id: uuidv4(), name: `best ${niche}`, searchVolume: 1800, competitionLevel: 'medium', cpcValue: 2.20 },
-      { id: uuidv4(), name: `${niche} tips`, searchVolume: 3200, competitionLevel: 'low', cpcValue: 1.80 },
-      { id: uuidv4(), name: `${niche} reviews`, searchVolume: 1500, competitionLevel: 'high', cpcValue: 3.40 },
-      { id: uuidv4(), name: `how to ${niche}`, searchVolume: 2800, competitionLevel: 'medium', cpcValue: 2.10 }
-    ];
-    dispatch({ type: 'SET_KEYWORDS', payload: keywords });
-    return keywords;
-  };
-
-  const generateContent = async (contentRequest) => {
-    dispatch({ type: 'SET_LOADING', payload: true });
+  const fetchUserProfile = async (userId) => {
     try {
-      // Mock content generation - in real app, this would call OpenAI API
-      const content = {
-        id: uuidv4(),
-        title: contentRequest.title,
-        body: `This is AI-generated content about ${contentRequest.topic}. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.`,
-        imageUrl: 'https://via.placeholder.com/600x400',
-        wordCount: 150,
-        readingTime: 1,
-        createdAt: new Date().toISOString()
-      };
-      dispatch({ type: 'ADD_CONTENT', payload: content });
-      return content;
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+        throw error;
+      }
+
+      if (data) {
+        dispatch({ type: 'SET_USER', payload: data });
+      }
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      dispatch({ type: 'SET_ERROR', payload: error.message });
+    }
+  };
+
+  const signUp = async (email, password, name) => {
+    try {
+      dispatch({ type: 'SET_LOADING', payload: true });
+      dispatch({ type: 'SET_ERROR', payload: null });
+
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+      });
+
+      if (error) throw error;
+
+      if (data.user) {
+        // Create user profile
+        const { error: profileError } = await supabase
+          .from('users')
+          .insert([
+            {
+              id: data.user.id,
+              name,
+              email,
+              plan_type: 'free'
+            }
+          ]);
+
+        if (profileError) throw profileError;
+      }
+
+      return { success: true, data };
     } catch (error) {
       dispatch({ type: 'SET_ERROR', payload: error.message });
+      return { success: false, error: error.message };
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
   };
 
+  const signIn = async (email, password) => {
+    try {
+      dispatch({ type: 'SET_LOADING', payload: true });
+      dispatch({ type: 'SET_ERROR', payload: null });
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) throw error;
+
+      return { success: true, data };
+    } catch (error) {
+      dispatch({ type: 'SET_ERROR', payload: error.message });
+      return { success: false, error: error.message };
+    } finally {
+      dispatch({ type: 'SET_LOADING', payload: false });
+    }
+  };
+
+  const signOut = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+    } catch (error) {
+      dispatch({ type: 'SET_ERROR', payload: error.message });
+    }
+  };
+
+  // Legacy methods - these will be replaced by service layer
+  const addNiche = (nicheData) => {
+    console.warn('addNiche is deprecated, use nicheService instead');
+    dispatch({ type: 'ADD_NICHE', payload: nicheData });
+    return nicheData;
+  };
+
+  const generateKeywords = (niche) => {
+    console.warn('generateKeywords is deprecated, use aiService instead');
+    return [];
+  };
+
+  const generateContent = async (contentRequest) => {
+    console.warn('generateContent is deprecated, use aiService instead');
+    return null;
+  };
+
   const createSite = (siteData) => {
-    const site = {
-      id: uuidv4(),
-      ...siteData,
-      revenue: 0,
-      createdAt: new Date().toISOString()
-    };
-    dispatch({ type: 'ADD_SITE', payload: site });
-    return site;
+    console.warn('createSite is deprecated, use nicheSiteService instead');
+    dispatch({ type: 'ADD_SITE', payload: siteData });
+    return siteData;
   };
 
   const value = {
     ...state,
-    login,
-    logout,
+    // New auth methods
+    signUp,
+    signIn,
+    signOut,
+    // Legacy methods (deprecated)
+    login: signIn,
+    logout: signOut,
     addNiche,
     generateKeywords,
     generateContent,
